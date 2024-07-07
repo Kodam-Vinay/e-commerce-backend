@@ -4,6 +4,7 @@ require("../db/connection");
 const { userRouter } = require("../Routes/userRouter");
 const { productRouter } = require("../Routes/productRouter");
 const cors = require("cors");
+const { shopRouter } = require("../Routes/shopRouter");
 
 const app = express();
 app.use(express.json());
@@ -11,6 +12,7 @@ app.use(cors({ origin: "*" }));
 const PORT = process.env.PORT || 8000;
 
 app.use("/api/users", userRouter);
+app.use("/api/shops", shopRouter);
 app.use("/api/products", productRouter);
 
 app.listen(PORT, () => {

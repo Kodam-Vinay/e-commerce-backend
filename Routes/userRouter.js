@@ -1,19 +1,19 @@
 const express = require("express");
 const {
   registerUser,
-  verifyOtp,
   loginUser,
-  sendOtp,
   updateUser,
   loginAsGuest,
   deleteUser,
+  verifyUserOtp,
+  sendUserOtp,
 } = require("../src/controllers/userController");
 const { authorizeUser } = require("../src/utils/constants");
 const router = express.Router();
 
 router.post("/register", registerUser);
-router.post("/verify-otp", verifyOtp);
-router.post("/send-otp", sendOtp);
+router.post("/verify-otp", verifyUserOtp);
+router.post("/send-otp", sendUserOtp);
 router.post("/login", loginUser);
 router.post("/guest-login", loginAsGuest);
 router.put("/update-user", authorizeUser, updateUser);

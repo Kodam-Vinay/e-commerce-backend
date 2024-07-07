@@ -36,6 +36,11 @@ const shopSchema = new Schema(
       type: String,
       required: true,
     },
+    reg_type: {
+      type: String,
+      required: true,
+      enum: ["seller"],
+    },
   },
   { timestamps: true }
 );

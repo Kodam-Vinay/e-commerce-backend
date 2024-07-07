@@ -9,6 +9,9 @@ const {
   sendMail,
   generateRandomEmailandUserId,
   preCheckValidations,
+  verifyOtp,
+  sendOtp,
+  userOrShopExistsWithIdOrEmailFunction,
 } = require("../utils/constants");
 const {
   VerificationEmailModel,
@@ -18,183 +21,72 @@ const { ShopModel } = require("../../db/model/shopModel");
 
 const registerUser = async (req, res) => {
   try {
-    const { email, password, confirm_password, name, user_type } = req.body;
-    await preCheckValidations({
+    const { email, password, confirm_password, name, reg_type } = req.body;
+    const response = await preCheckValidations({
       email,
       password,
       confirm_password,
       name,
-      user_type,
-      model: UserModel,
+      reg_type,
       res,
     });
+    if (response === true) {
+      //generating otp
+      const otp = generateOtp();
 
-    //generating otp
-    const otp = generateOtp();
+      // hashing otp and password
+      const hashedPassword = await makeHashText(password);
+      const hashedOtp = await makeHashText(otp);
 
-    // hashing otp and password
-    const hashedPassword = await makeHashText(password);
-    const hashedOtp = await makeHashText(otp);
-
-    const user = new UserModel({
-      name,
-      email,
-      password: hashedPassword,
-      user_type,
-      user_id: name + generateOtp(),
-    });
-
-    const token = new VerificationEmailModel({
-      user_shop: user?._id,
-      otp: hashedOtp,
-    });
-    const userDetails = await user.save();
-    await token.save();
-    await sendMail(userDetails?.email, otp, userDetails?.name);
-
-    const sendUserDetails = {
-      id: userDetails?._id,
-      name: userDetails?.name,
-      verified: userDetails?.verified,
-    };
-
-    res
-      .status(201)
-      .send({ userDetails: sendUserDetails, message: "OTP sent Successfully" });
-  } catch (error) {
-    res.status(400).send({ message: "Something error is Happend" });
-  }
-};
-
-const verifyOtp = async (req, res) => {
-  try {
-    const { user, otp } = req.body;
-
-    if (!user || !otp.trim()) {
-      return res.status(400).send({
-        message: "Fields Should not be empty",
+      const user = new UserModel({
+        name,
+        email,
+        password: hashedPassword,
+        reg_type,
+        user_id:
+          name?.split()?.length > 1
+            ? name.split().join("") + generateOtp()
+            : name + generateOtp(),
       });
-    }
 
-    const checkUserExist = await UserModel.findOne({ _id: user });
-    if (!checkUserExist) {
-      return res.status(400).send({
-        message: "User Not Exists",
+      const verificationOtp = new VerificationEmailModel({
+        user_shop: user?._id,
+        modelType: "User",
+        otp: hashedOtp,
       });
-    }
+      const userDetails = await user.save();
+      await verificationOtp.save();
+      await sendMail(userDetails?.email, otp, userDetails?.name);
 
-    if (checkUserExist?.verified) {
-      return res.status(400).send({
-        message: "User Already Verified",
-      });
-    }
-
-    const findUserExistsOtp = await VerificationEmailModel.findOne({
-      user: checkUserExist?._id,
-    });
-
-    if (!findUserExistsOtp) {
-      return res.status(400).send({
-        message: "OTP Expired, Make Another OTP Request",
-      });
-    }
-
-    const result = await verifyOtpAndPassword(findUserExistsOtp?.otp, otp);
-    if (!result) {
-      return res.status(400).send({
-        message: "Otp is invalid",
-      });
-    }
-    checkUserExist.verified = true;
-    await VerificationEmailModel.findByIdAndDelete(findUserExistsOtp?._id);
-    const userDetails = await checkUserExist.save();
-    const details = {
-      name: userDetails?.name,
-      user_id: userDetails?.user_id,
-      user_type: userDetails?.user_type,
-    };
-    const token = await generateJwtToken(details);
-    if (userDetails?.user_type === "seller") {
-      const checkSellerShopDetails = await ShopModel.findOne({
-        user: userDetails?._id,
-      });
-      if (!checkSellerShopDetails) {
-        return res.status(400).send({
-          message: "Your Not Authorized Seller",
-        });
-      }
-      const sendDetails = {
+      const sendUserDetails = {
+        id: userDetails?._id,
         name: userDetails?.name,
-        user_id: userDetails?.user_id,
-        user_type: userDetails?.user_type,
         verified: userDetails?.verified,
-        image: userDetails?.image,
-        shop_name: checkSellerShopDetails?.shop_name,
-        shop_address: checkSellerShopDetails?.shop_address,
-        jwtToken: token,
       };
-      return res.status(200).send({ userDetails: sendDetails });
+
+      res.status(201).send({
+        userOrShopDetails: sendUserDetails,
+        message: "OTP sent Successfully",
+      });
     }
-    const sendDetails = {
-      name: userDetails?.name,
-      user_id: userDetails?.user_id,
-      user_type: userDetails?.user_type,
-      verified: userDetails?.verified,
-      image: userDetails?.image,
-      jwtToken: token,
-    };
-    res.status(200).send({ userDetails: sendDetails });
   } catch (error) {
     res.status(400).send({ message: "Something error is Happend" });
   }
 };
 
-const sendOtp = async (req, res) => {
+const verifyUserOtp = async (req, res) => {
   try {
-    const { user } = req.body;
+    const { userOrShopId, otp } = req.body;
+    verifyOtp({ res, model: UserModel, userOrShopId, otp });
+  } catch (error) {
+    res.status(400).send({ message: "Something error is Happend" });
+  }
+};
 
-    if (!user) {
-      return res.status(400).send({
-        message: "Fields Should not be empty",
-      });
-    }
-
-    const checkUserExist = await UserModel.findOne({ _id: user });
-
-    if (!checkUserExist) {
-      return res.status(400).send({
-        message: "User Not Exists",
-      });
-    }
-
-    if (checkUserExist?.verified) {
-      return res.status(400).send({
-        message: "User Already Verified",
-      });
-    }
-
-    const checkVerificationExists = await VerificationEmailModel.findOne({
-      user: checkUserExist?._id,
-    });
-
-    if (checkVerificationExists) {
-      return res.status(400).send({
-        message:
-          "Please wait 5 mins to make another otp Request (Or) Check Ur Recent Otp Mail",
-      });
-    }
-
-    const otp = generateOtp();
-    const hashedOtp = await makeHashText(otp);
-    const token = new VerificationEmailModel({
-      user: checkUserExist?._id,
-      otp: hashedOtp,
-    });
-    await token.save();
-    await sendMail(checkUserExist?.email, otp, checkUserExist?.name);
-    res.status(200).send({
-      message: "OTP sent Successfully",
-    });
+const sendUserOtp = async (req, res) => {
+  try {
+    const { userOrShopId } = req.body;
+    sendOtp({ res, model: UserModel, userOrShopId });
   } catch (error) {
     res.status(400).send({ message: "Something error is Happend" });
   }
@@ -203,90 +95,60 @@ const sendOtp = async (req, res) => {
 const loginUser = async (req, res) => {
   try {
     const { email, password } = req.body;
+    if (!email.toString().trim() || !password.toString().trim()) {
+      return res.status(400).send({ message: "Fieds Should Not Be Empty" });
+    }
     if (!validator.isEmail(email)) {
-      userExistsWithIdOrEmailFunction(res, password, email, "user_id");
+      const checkUserExistInUsers = await UserModel.findOne({ user_id: email });
+      const checkShopExistInShops = await ShopModel.findOne({ shop_id: email });
+      if (!checkUserExistInUsers && !checkShopExistInShops) {
+        return res
+          .status(404)
+          .send({ message: "Entered User/Shop Id Not Found" });
+      } else if (checkUserExistInUsers) {
+        userOrShopExistsWithIdOrEmailFunction({
+          res,
+          password,
+          email,
+          model: UserModel,
+          type: "user_id",
+        });
+      } else {
+        userOrShopExistsWithIdOrEmailFunction({
+          res,
+          password,
+          email,
+          model: ShopModel,
+          type: "shop_id",
+        });
+      }
     } else {
-      userExistsWithIdOrEmailFunction(res, password, email, "email");
+      const checkUserExistInUsers = await UserModel.findOne({ email });
+      const checkShopExistInShops = await ShopModel.findOne({ email });
+      if (!checkUserExistInUsers && !checkShopExistInShops) {
+        return res.status(404).send({ message: "Entered Email Id Not Found" });
+      } else if (checkUserExistInUsers) {
+        userOrShopExistsWithIdOrEmailFunction({
+          res,
+          password,
+          email,
+          model: UserModel,
+          type: "email",
+        });
+      } else {
+        userOrShopExistsWithIdOrEmailFunction({
+          res,
+          password,
+          email,
+          model: ShopModel,
+          type: "email",
+        });
+      }
     }
   } catch (error) {
     res.status(400).send({ message: "Something error is Happend" });
   }
 };
-
-async function userExistsWithIdOrEmailFunction(res, password, email, type) {
-  try {
-    const userExistWithIdOrEmail = await UserModel.findOne({ [type]: email });
-    if (!userExistWithIdOrEmail) {
-      return res
-        .status(400)
-        .send({ message: "Please Enter a Valid User Id or Email" });
-    } else {
-      const checkPassword = await verifyOtpAndPassword(
-        userExistWithIdOrEmail?.password,
-        password
-      );
-      if (!checkPassword) {
-        return res.status(400).send({ message: "Please Check Your Password" });
-      }
-      if (userExistWithIdOrEmail?.verified) {
-        const details = {
-          name: userExistWithIdOrEmail?.name,
-          user_id: userExistWithIdOrEmail?.user_id,
-          user_type: userExistWithIdOrEmail?.user_type,
-        };
-        const token = await generateJwtToken(details);
-        const userDetails = {
-          name: userExistWithIdOrEmail?.name,
-          user_id: userExistWithIdOrEmail?.user_id,
-          user_type: userExistWithIdOrEmail?.user_type,
-          verified: userExistWithIdOrEmail?.verified,
-          image: userExistWithIdOrEmail?.image,
-          jwtToken: token,
-        };
-        res.status(200).send({ userDetails });
-      } else {
-        const checkVerificationExists = await VerificationEmailModel.findOne({
-          user: userExistWithIdOrEmail?._id,
-        });
-        if (!checkVerificationExists) {
-          const otp = generateOtp();
-          const hashedOtp = await makeHashText(otp);
-          const token = new VerificationEmailModel({
-            user: userExistWithIdOrEmail?._id,
-            otp: hashedOtp,
-          });
-          await token.save();
-          await sendMail(
-            userExistWithIdOrEmail?.email,
-            otp,
-            userExistWithIdOrEmail?.name
-          );
-          const sendUserDetails = {
-            id: userExistWithIdOrEmail?._id,
-            name: userExistWithIdOrEmail?.name,
-            verified: userExistWithIdOrEmail?.verified,
-          };
-          res.status(200).send({
-            userDetails: sendUserDetails,
-            message: "OTP sent Successfully",
-          });
-        } else {
-          const sendUserDetails = {
-            id: userExistWithIdOrEmail?._id,
-            name: userExistWithIdOrEmail?.name,
-            verified: userExistWithIdOrEmail?.verified,
-          };
-          res.status(200).send({
-            userDetails: sendUserDetails,
-            message: "OTP sent Successfully",
-          });
-        }
-      }
-    }
-  } catch (error) {
-    res.status(400).send({ message: "Something error is Happend" });
-  }
-}
 
 const loginAsGuest = async (req, res) => {
   try {
@@ -296,7 +158,7 @@ const loginAsGuest = async (req, res) => {
       name,
       email,
       password: hashedPassword,
-      user_type: "guest",
+      reg_type: "guest",
       user_id: name + generateOtp(),
       verified: true,
     });
@@ -304,35 +166,45 @@ const loginAsGuest = async (req, res) => {
     const details = {
       name: userDetails?.name,
       user_id: userDetails?.user_id,
-      user_type: userDetails?.user_type,
+      reg_type: userDetails?.reg_type,
     };
     const token = await generateJwtToken(details);
 
     const senduserDetails = {
       name: userDetails?.name,
       user_id: userDetails?.user_id,
-      user_type: userDetails?.user_type,
+      reg_type: userDetails?.reg_type,
       verified: userDetails?.verified,
       image: userDetails?.image,
       jwtToken: token,
     };
-    res.status(200).send({ userDetails: senduserDetails });
+    res.status(200).send({ userOrShopDetails: senduserDetails });
   } catch (error) {
-    console.log(error.message);
     res.status(400).send({ message: "Something error is Happend" });
   }
 };
 
 const updateUser = async (req, res) => {
   try {
-    const { userDetails } = req.user;
+    const { userOrShopDetails } = req.user;
     const requests = req.body;
-    const checkUserExist = await UserModel.findOne({
-      user_id: userDetails?.user_id,
-    });
+    const model =
+      userOrShopDetails?.reg_type === "seller" ? ShopModel : UserModel;
+    const checkUserOrShopExist =
+      userOrShopDetails?.reg_type === "seller"
+        ? await model.findOne({
+            shop_id: userOrShopDetails?.shop_id,
+          })
+        : await model.findOne({
+            user_id: userOrShopDetails?.user_id,
+          });
 
-    const checkUserIsVerified = checkUserExist?.verified;
-    if (!checkUserIsVerified) {
+    if (!checkUserOrShopExist) {
+      return res.status(400).send({ message: "User/Shop Not Exist" });
+    }
+
+    const checkUserOrShopIsVerified = checkUserOrShopExist?.verified;
+    if (!checkUserOrShopIsVerified) {
       return res
         .status(400)
         .send({ message: "User is Not Verified or Not Valid" });
@@ -348,13 +220,14 @@ const updateUser = async (req, res) => {
       if (
         each === "oldPassword" ||
         each === "newPassword" ||
-        each === "is_premium_user" ||
-        (userDetails?.user_type === "seller" && each === "shop_address") ||
-        (userDetails?.user_type === "seller" && each === "shop_name")
+        each === "is_premium_user"
       ) {
+        // (userOrShopDetails?.reg_type === "seller" &&
+        //   each === "shop_address") ||
+        // (userOrShopDetails?.user_type === "seller" && each === "shop_name")
         return;
       }
-      if (!checkUserExist[each]) {
+      if (!checkUserOrShopExist[each]) {
         result = true;
       }
     });
@@ -365,20 +238,30 @@ const updateUser = async (req, res) => {
       });
     }
 
-    if (requests?.user_id && checkUserExist?.user_id !== requests?.user_id) {
+    if (
+      (requests?.user_id &&
+        checkUserOrShopExist?.user_id !== requests?.user_id) ||
+      (requests?.shop_id && checkUserOrShopExist?.shop_id !== requests?.shop_id)
+    ) {
       //if req has user id then check logged in user
-      const findUserAlreadyExist = await UserModel.findOne({
-        user_id: requests?.user_id,
-      });
+      const findUserAlreadyExist =
+        userOrShopDetails?.reg_type === "seller"
+          ? await model.findOne({
+              shop_id: requests?.shop_id,
+            })
+          : await model.findOne({
+              user_id: requests?.user_id,
+            });
+
       if (findUserAlreadyExist) {
         return res.status(400).send({
-          message: "User Id Already Exist",
+          message: "User/Shop Id Already Exist",
         });
       }
     }
 
-    if (requests?.user_type) {
-      if (requests?.user_type !== checkUserExist?.user_type) {
+    if (requests?.reg_type) {
+      if (requests?.reg_type !== checkUserOrShopExist?.reg_type) {
         return res
           .status(400)
           .send({ message: "You are not allowed to change the type of user" });
@@ -386,7 +269,7 @@ const updateUser = async (req, res) => {
     }
 
     if (requests?.verified === true || requests?.verified === false) {
-      if (requests?.verified !== checkUserExist?.verified) {
+      if (requests?.verified !== checkUserOrShopExist?.verified) {
         return res
           .status(400)
           .send({ message: "You can verify your account by email validation" });
@@ -396,12 +279,18 @@ const updateUser = async (req, res) => {
     if (requests?.oldPassword && requests?.newPassword) {
       //check old password not equal to new pass
 
-      const findUser = await UserModel.findOne({
-        user_id: userDetails?.user_id,
-      });
+      const findUser =
+        userOrShopDetails?.reg_type === "seller"
+          ? await model.findOne({
+              shop_id: userOrShopDetails?.shop_id,
+            })
+          : await model.findOne({
+              user_id: userOrShopDetails?.user_id,
+            });
+
       if (!findUser) {
         return res.status(400).send({
-          message: "User Not Exist",
+          message: "User/Shop Not Exist",
         });
       }
       if (requests?.oldPassword === requests?.newPassword) {
@@ -433,75 +322,120 @@ const updateUser = async (req, res) => {
         ...requests,
         password: hashedPassword,
       };
-      const updateUser = { ...checkUserExist._doc, ...req }; //getting response in {checkUserExist: {_doc: {userdetails}}}
+      const updateUser = { ...checkUserOrShopExist._doc, ...req }; //getting response in {checkUserExist: {_doc: {userdetails}}}
 
       const checkAnyChangesMade =
-        JSON.stringify(updateUser) !== JSON.stringify(checkUserExist);
+        JSON.stringify(updateUser) !== JSON.stringify(checkUserOrShopExist);
 
       if (checkAnyChangesMade) {
-        await UserModel.updateOne(
-          { user_id: checkUserExist?.user_id },
-          { $set: updateUser },
-          { new: true }
-        );
+        userOrShopDetails?.reg_type === "seller"
+          ? await model.updateOne(
+              { shop_id: checkUserOrShopExist?.shop_id },
+              { $set: updateUser },
+              { new: true }
+            )
+          : await model.updateOne(
+              { user_id: checkUserOrShopExist?.user_id },
+              { $set: updateUser },
+              { new: true }
+            );
+        if (checkUserOrShopExist?.reg_type === "seller") {
+          const filter = { seller_id: checkUserOrShopExist?.shop_id };
+          const updateDoc = { seller_id: requests?.shop_id };
+          await ProductModel.updateMany(filter, updateDoc);
+        }
       }
     } else {
-      const updateUser = { ...checkUserExist._doc, ...requests }; //getting response in {checkUserExist: {_doc: {userdetails}}}
+      const updateUser = { ...checkUserOrShopExist._doc, ...requests }; //getting response in {checkUserExist: {_doc: {userdetails}}}
 
       const checkAnyChangesMade =
-        JSON.stringify(updateUser) !== JSON.stringify(checkUserExist);
+        JSON.stringify(updateUser) !== JSON.stringify(checkUserOrShopExist);
 
       if (checkAnyChangesMade) {
         await UserModel.updateOne(
-          { user_id: checkUserExist?.user_id },
+          { user_id: checkUserOrShopExist?.user_id },
           { $set: updateUser },
           { new: true }
         );
-        if (checkUserExist?.user_type === "seller") {
-          const filter = { seller_id: checkUserExist?.user_id };
-          const updateDoc = { seller_id: requests?.user_id };
+        if (checkUserOrShopExist?.reg_type === "seller") {
+          const filter = { seller_id: checkUserOrShopExist?.shop_id };
+          const updateDoc = { seller_id: requests?.shop_id };
           await ProductModel.updateMany(filter, updateDoc);
         }
       }
     }
 
-    const userDetailsAfterUpdate = await UserModel.findOne({
-      user_id: requests?.user_id,
-    });
+    const userDetailsAfterUpdate =
+      userOrShopDetails?.reg_type === "seller"
+        ? await model.findOne({
+            shop_id: requests?.shop_id,
+          })
+        : await model.findOne({
+            user_id: requests?.user_id,
+          });
 
-    const details = {
-      name: userDetailsAfterUpdate?.name,
-      user_id: userDetailsAfterUpdate?.user_id,
-      user_type: userDetailsAfterUpdate?.user_type,
-    };
+    if (userOrShopDetails?.reg_type === "seller") {
+      const details = {
+        name: userDetailsAfterUpdate?.name,
+        shop_id: userDetailsAfterUpdate?.shop_id,
+        reg_type: userDetailsAfterUpdate?.reg_type,
+      };
 
-    const token = await generateJwtToken(details);
+      const token = await generateJwtToken(details);
 
-    const sendDetails = {
-      name: userDetailsAfterUpdate?.name,
-      user_id: userDetailsAfterUpdate?.user_id,
-      user_type: userDetailsAfterUpdate?.user_type,
-      verified: userDetailsAfterUpdate?.verified,
-      image: userDetailsAfterUpdate?.image,
-      jwtToken: token,
-    };
-    res.status(200).send({
-      message: "User Details updated successfully",
-      userDetails: sendDetails,
-    });
+      const sendDetails = {
+        name: userDetailsAfterUpdate?.name,
+        shop_id: userDetailsAfterUpdate?.shop_id,
+        reg_type: userDetailsAfterUpdate?.reg_type,
+        verified: userDetailsAfterUpdate?.verified,
+        image: userDetailsAfterUpdate?.image,
+        shop_name: userDetailsAfterUpdate?.shop_name,
+        shop_address: userDetailsAfterUpdate?.shop_address,
+        jwtToken: token,
+      };
+      res.status(200).send({
+        message: "User Details updated successfully",
+        userOrShopDetails: sendDetails,
+      });
+    } else {
+      const details = {
+        name: userDetailsAfterUpdate?.name,
+        user_id: userDetailsAfterUpdate?.user_id,
+        reg_type: userDetailsAfterUpdate?.reg_type,
+      };
+      const token = await generateJwtToken(details);
+      const sendDetails = {
+        name: userDetailsAfterUpdate?.name,
+        user_id: userDetailsAfterUpdate?.user_id,
+        reg_type: userDetailsAfterUpdate?.reg_type,
+        verified: userDetailsAfterUpdate?.verified,
+        image: userDetailsAfterUpdate?.image,
+        jwtToken: token,
+      };
+      res.status(200).send({
+        message: "User Details updated successfully",
+        userOrShopDetails: sendDetails,
+      });
+    }
   } catch (error) {
-    console.log(error.message);
     res.status(400).send({ message: "Something error is Happend" });
   }
 };
 
 const deleteUser = async (req, res) => {
   try {
-    const { userDetails } = req.user;
-    const { user_id } = req.body;
-    const findUser = await UserModel.findOne({
-      user_id: userDetails?.user_id,
-    });
+    const { userOrShopDetails } = req.user;
+    const { user_shop_id } = req.body;
+    const model =
+      userOrShopDetails?.reg_type === "seller" ? ShopModel : UserModel;
+    const findUser =
+      userOrShopDetails?.reg_type === "seller"
+        ? await model.findOne({
+            shop_id: userOrShopDetails?.shop_id,
+          })
+        : await model.findOne({
+            user_id: userOrShopDetails?.user_id,
+          });
     if (!findUser) {
       return res.status(400).send({ message: "User Not Exist" });
     }
@@ -512,8 +446,8 @@ const deleteUser = async (req, res) => {
         .send({ message: "User is Not Verified or Not Valid" });
     }
 
-    if (userDetails?.user_type === "admin" && user_id) {
-      const findUserWithUserId = await UserModel.findOne({
+    if (userOrShopDetails?.reg_type === "admin" && user_shop_id) {
+      const findUserWithUserId = await model.findOne({
         user_id,
       });
       if (!findUserWithUserId) {
@@ -522,12 +456,12 @@ const deleteUser = async (req, res) => {
       await UserModel.findOneAndDelete({ user_id });
       res.status(200).send({ message: "User Deleted Successfully" });
     } else {
-      if (userDetails?.user_type === "admin") {
+      if (userOrShopDetails?.reg_type === "admin") {
         return res
           .status(400)
           .send({ message: "You are trying to delete admin" });
       }
-      await UserModel.findOneAndDelete({ user_id: userDetails?.user_id });
+      await UserModel.findOneAndDelete({ user_id: userOrShopDetails?.user_id });
       res.status(200).send({ message: "User Deleted Successfully" });
     }
   } catch (error) {
@@ -538,9 +472,9 @@ const deleteUser = async (req, res) => {
 module.exports = {
   registerUser,
   loginUser,
-  verifyOtp,
-  sendOtp,
+  verifyUserOtp,
   updateUser,
   loginAsGuest,
   deleteUser,
+  sendUserOtp,
 };

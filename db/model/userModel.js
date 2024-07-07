@@ -37,6 +37,11 @@ const userSchema = new Schema(
       required: true,
       default: false,
     },
+    reg_type: {
+      type: String,
+      required: true,
+      enum: ["buyer", "guest", "admin"],
+    },
   },
   {
     timestamps: true,
