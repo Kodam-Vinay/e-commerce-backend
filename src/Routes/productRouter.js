@@ -1,12 +1,13 @@
 const express = require("express");
-const { authorizeUser } = require("../src/utils/constants");
+
+const { authorizeUser } = require("../utils/constants");
 const {
   getAllProducts,
   addProduct,
-  deleteProduct,
   updateProduct,
+  deleteProduct,
   getProduct,
-} = require("../src/controllers/productController");
+} = require("../controllers/productController");
 const router = express.Router();
 
 router.get("/all", authorizeUser, getAllProducts);

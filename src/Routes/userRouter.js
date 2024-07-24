@@ -7,8 +7,8 @@ const {
   deleteUser,
   verifyUserOtp,
   sendUserOtp,
-} = require("../src/controllers/userController");
-const { authorizeUser } = require("../src/utils/constants");
+} = require("../controllers/userController");
+const { authorizeUser } = require("../utils/constants");
 const router = express.Router();
 
 router.post("/register", registerUser);
@@ -19,6 +19,4 @@ router.post("/guest-login", loginAsGuest);
 router.put("/update-user", authorizeUser, updateUser);
 router.delete("/delete", authorizeUser, deleteUser);
 
-module.exports = {
-  userRouter: router,
-};
+module.exports = router;

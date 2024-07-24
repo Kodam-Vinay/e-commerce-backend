@@ -41,6 +41,12 @@ const productSchema = new Schema(
       required: true,
       default: 0,
     },
+    reviews: [
+      {
+        type: Schema.Types.ObjectId,
+        ref: "Review",
+      },
+    ],
   },
   {
     timestamps: true,
@@ -48,6 +54,4 @@ const productSchema = new Schema(
 );
 
 const ProductModel = model("Product", productSchema);
-module.exports = {
-  ProductModel,
-};
+module.exports = ProductModel;

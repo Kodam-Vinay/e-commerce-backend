@@ -3,11 +3,9 @@ const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
 const { createTransport } = require("nodemailer");
 const validator = require("validator");
-const {
-  VerificationEmailModel,
-} = require("../../db/model/verificationEmailModel");
-const { ShopModel } = require("../../db/model/shopModel");
-const { UserModel } = require("../../db/model/UserModel");
+const VerificationEmailModel = require("../db/models/verificationEmailModel");
+const UserModel = require("../db/models/userModel");
+
 const MONGO_URL = `mongodb+srv://${process.env.USER_NAME}:${process.env.PASSWORD}@cluster8.lcc0un1.mongodb.net/e-commerce`;
 
 const generateOtp = () => {
@@ -57,8 +55,8 @@ const verifyOtpAndPassword = async (passwordOrOtp, enteredPassOrOtp) => {
   return result;
 };
 
-const generateJwtToken = (userOrShopDetails) => {
-  return jwt.sign({ userOrShopDetails }, process.env.SECRET_KEY);
+const generateJwtToken = (userDetails) => {
+  return jwt.sign({ userDetails }, process.env.SECRET_KEY);
 };
 
 const sendMail = async (email, otp, name) => {
@@ -87,14 +85,39 @@ const authorizeUser = async (req, res, next) => {
     const jwtToken = authHeader.split(" ")[1];
     jwt.verify(jwtToken, process.env.SECRET_KEY, async (err, decoded) => {
       if (err) {
-        return res.status(401).send({ message: "Unauthorized User" });
+        return res
+          .status(401)
+          .send({ status: false, message: "Unauthorized User" });
       }
       req.user = decoded;
       next();
     });
   } else {
-    res.status(401).send({ message: "Unauthorized User" });
+    res.status(401).send({ status: false, message: "Unauthorized User" });
   }
+};
+
+const verificationMiddleWare = async (req, res, next) => {
+  const { userDetails } = req.user;
+  const findUser = await UserModel.findOne(userDetails?.id);
+  const checkUserIsVerified = findUser?.verified;
+  if (!checkUserIsVerified) {
+    return res
+      .status(400)
+      .send({ status: false, message: "User Is Invalid/Not Verified" });
+  }
+  next();
+};
+
+const authorizeAdmin = async (req, res, next) => {
+  const { userDetails } = req.user;
+  const checkUserTypeIsAdmin = userDetails?.role === "admin";
+  if (!checkUserTypeIsAdmin) {
+    return res
+      .status(400)
+      .send({ status: false, message: "This Access Limited To Admins Only" });
+  }
+  next();
 };
 
 const generateRandomNum = (length) => {
@@ -110,305 +133,294 @@ const generateRandomEmailandUserId = () => {
   }
 
   return {
-    email: "Test" + randWord + generateRandomNum(99) + "@gmail.com",
+    email: "test" + randWord + generateRandomNum(99) + "@gmail.com",
     name: "test" + randWord,
   };
 };
+
+const ALLOWED_ROLES = ["admin", "seller", "guest", "buyer"];
+
+const REG_TYPES = ["sellerAdmin", "buyerGuest"];
 
 const preCheckValidations = async ({
   email,
   password,
   confirm_password,
   name,
-  reg_type,
+  role,
   res,
+  user_id,
+  reg_type,
 }) => {
   let result = false;
   if (
-    !email.toString().trim() ||
-    !password.toString().trim() ||
-    !confirm_password.toString().trim() ||
-    !name.toString().trim() ||
-    !reg_type.toString().trim()
+    !email?.toString().trim() ||
+    !password?.toString().trim() ||
+    !confirm_password?.toString().trim() ||
+    !name?.toString().trim() ||
+    !role?.toString().trim() ||
+    !user_id?.toString().trim()
   ) {
-    return res.status(400).send({ message: "Fields must not to be Empty" });
+    return res
+      .status(400)
+      .send({ status: false, message: "Fields must not to be Empty" });
+  }
+
+  const checkRole = ALLOWED_ROLES.includes(role);
+  if (!checkRole) {
+    return res
+      .status(400)
+      .send({ status: false, message: "Role doesn't exist" });
+  }
+
+  if (reg_type === REG_TYPES[0] && (role === "buyer" || role === "guest")) {
+    return res.status(400).send({
+      status: false,
+      message: "Role Should Be Either seller (Or) admin only.",
+    });
+  }
+
+  if (reg_type === REG_TYPES[1] && (role === "admin" || role === "seller")) {
+    return res.status(400).send({
+      status: false,
+      message: "Role Should Be Etiher User (Or) Guest only.",
+    });
   }
 
   if (!validator.isEmail(email)) {
-    return res.status(400).send({ message: "Email is Invalid" });
+    return res.status(400).send({ status: false, message: "Email is Invalid" });
   }
-  const userOrShopNameExistsWithEmailInShop = await ShopModel.findOne({
+
+  const userOrExistsWithEmail = await UserModel.findOne({
     email,
   });
-  if (userOrShopNameExistsWithEmailInShop) {
-    return res.status(400).send({ message: "User Email Already Exists" });
-  }
-  const userOrShopNameExistsWithEmailInUsers = await UserModel.findOne({
-    email,
+
+  const userOrExistsWithId = await UserModel.findOne({
+    user_id,
   });
-  if (userOrShopNameExistsWithEmailInUsers) {
-    return res.status(400).send({ message: "User Email Already Exists" });
+
+  if (userOrExistsWithEmail) {
+    return res
+      .status(400)
+      .send({ status: false, message: "User Email Already Exists" });
+  }
+
+  if (userOrExistsWithId) {
+    return res
+      .status(400)
+      .send({ status: false, message: "User Id Already Exists" });
   }
 
   if (password !== confirm_password) {
     return res.status(400).send({
+      status: false,
       message: "Both Passwords should Match",
     });
   }
 
   if (!validator.isStrongPassword(password)) {
     return res.status(400).send({
+      status: false,
       message:
         "Password Not Meet the criteria, it Must includes(password length 8 or more charaters, 1 uppercase letter, 1 special symbol)",
     });
   }
+
   result = true;
   return result;
 };
 
-const verifyOtp = async ({ res, model, userOrShopId, otp }) => {
+const verifyOtp = async ({ res, user_id, otp }) => {
   try {
-    if (!userOrShopId || !otp.trim()) {
+    if (!user_id || !otp?.toString().trim()) {
       return res.status(400).send({
+        status: false,
         message: "Fields Should not be empty",
       });
     }
-    const checkUserOrShopExist = await model.findOne({ _id: userOrShopId });
-
-    if (!checkUserOrShopExist) {
-      return res.status(404).send({
-        message: model === ShopModel ? "Shop Not Exists" : "User Not Exists",
-      });
-    }
-
-    if (checkUserOrShopExist?.verified) {
-      return res.status(400).send({
-        message:
-          model === ShopModel
-            ? "Shop Already Verified"
-            : "User Already Verified",
-      });
-    }
-
-    const findUserOrShopExistsOtp = await VerificationEmailModel.findOne({
-      user_shop: checkUserOrShopExist?._id,
-      modelType: model === ShopModel ? "Shop" : "User",
+    const checkUserExist = await UserModel.findOne({
+      _id: user_id,
     });
 
-    if (!findUserOrShopExistsOtp) {
+    if (!checkUserExist) {
       return res.status(404).send({
+        status: false,
+        message: "User Not Exists",
+      });
+    }
+
+    if (checkUserExist?.verified) {
+      return res.status(400).send({
+        status: false,
+        message: "User Already Verified",
+      });
+    }
+
+    const findUserExistWithOtp = await VerificationEmailModel.findOne({
+      user_id,
+    });
+
+    if (!findUserExistWithOtp) {
+      return res.status(404).send({
+        status: false,
         message: "OTP Expired, Make Another OTP Request",
       });
     }
 
-    const result = await verifyOtpAndPassword(
-      findUserOrShopExistsOtp?.otp,
-      otp
-    );
+    const result = await verifyOtpAndPassword(findUserExistWithOtp?.otp, otp);
 
     if (!result) {
       return res.status(400).send({
+        status: false,
         message: "Otp is invalid",
       });
     }
-    checkUserOrShopExist.verified = true;
-    await VerificationEmailModel.findByIdAndDelete(
-      findUserOrShopExistsOtp?._id
-    );
 
-    const userOrShopDetails = await checkUserOrShopExist.save();
+    checkUserExist.verified = true;
+    await VerificationEmailModel.findByIdAndDelete(findUserExistWithOtp?._id);
 
-    if (model === ShopModel) {
-      const details = {
-        name: userOrShopDetails?.name,
-        shop_id: userOrShopDetails?.shop_id,
-        reg_type: userOrShopDetails?.reg_type,
-      };
-      const token = await generateJwtToken(details);
-      const sendDetails = {
-        name: userOrShopDetails?.name,
-        shop_id: userOrShopDetails?.shop_id,
-        reg_type: userOrShopDetails?.reg_type,
-        verified: userOrShopDetails?.verified,
-        image: userOrShopDetails?.image,
-        shop_name: userOrShopDetails?.shop_name,
-        shop_address: userOrShopDetails?.shop_address,
-        jwtToken: token,
-      };
-      return res.status(200).send({ userOrShopDetails: sendDetails });
-    }
+    const userDetails = await checkUserExist.save();
+
     const details = {
-      name: userOrShopDetails?.name,
-      user_id: userOrShopDetails?.user_id,
-      reg_type: userOrShopDetails?.reg_type,
+      name: userDetails?.name,
+      user_id: userDetails?.user_id,
+      role: userDetails?.role,
     };
     const token = await generateJwtToken(details);
     const sendDetails = {
-      name: userOrShopDetails?.name,
-      user_id: userOrShopDetails?.user_id,
-      reg_type: userOrShopDetails?.reg_type,
-      verified: userOrShopDetails?.verified,
-      image: userOrShopDetails?.image,
+      name: userDetails?.name,
+      user_id: userDetails?.user_id,
+      role: userDetails?.role,
+      verified: userDetails?.verified,
+      image: userDetails?.image,
+      address: userDetails?.address,
       jwtToken: token,
     };
-    res.status(200).send({ userOrShopDetails: sendDetails });
+    res.status(200).send({
+      status: true,
+      message: "User Verified Successfully",
+      data: {
+        userDetails: sendDetails,
+      },
+    });
   } catch (error) {
-    res.status(400).send({ message: "Something error is Happend" });
+    res.status(400).send({ status: false, message: "Something Went Wrong" });
   }
 };
 
-const sendOtp = async ({ res, model, userOrShopId }) => {
+const sendOtp = async ({ res, user_id }) => {
   try {
-    if (!userOrShopId) {
+    if (!user_id) {
       return res.status(400).send({
+        status: false,
         message: "Fields Should not be empty",
       });
     }
 
-    const checkUserOrShopExist = await model.findOne({ _id: userOrShopId });
-
-    if (!checkUserOrShopExist) {
-      return res.status(400).send({
-        message: model === ShopModel ? "Shop Not Exists" : "User Not Exists",
-      });
-    }
-
-    if (checkUserOrShopExist?.verified) {
-      return res.status(400).send({
-        message:
-          model === ShopModel
-            ? "Shop Already Verified"
-            : "User Already Verified",
-      });
-    }
-
-    const findUserOrShopExistsOtp = await VerificationEmailModel.findOne({
-      user_shop: checkUserOrShopExist?._id,
-      modelType: model === ShopModel ? "Shop" : "User",
+    const checkUserExist = await UserModel.findOne({
+      _id: user_id,
     });
 
-    if (findUserOrShopExistsOtp) {
+    if (!checkUserExist) {
       return res.status(400).send({
+        status: false,
+        message: "User Not Exists",
+      });
+    }
+
+    if (checkUserExist?.verified) {
+      return res.status(400).send({
+        status: false,
+        message: "User Already Verified",
+      });
+    }
+
+    const findUserExistWithOtp = await VerificationEmailModel.findOne({
+      user_id: checkUserExist?._id,
+    });
+
+    if (findUserExistWithOtp) {
+      return res.status(400).send({
+        status: false,
         message:
-          "Please wait 5 mins to make another otp Request (Or) Check Ur Recent Otp Mail",
+          "Please wait 5 mins to make another otp Request (Or) Check Ur Recent Otp on Mail",
       });
     }
 
     const otp = generateOtp();
     const hashedOtp = await makeHashText(otp);
     const verificationOtp = new VerificationEmailModel({
-      user_shop: checkUserOrShopExist?._id,
-      modelType: model === ShopModel ? "Shop" : "User",
+      user_id: checkUserExist?._id,
       otp: hashedOtp,
     });
     await verificationOtp.save();
-    await sendMail(
-      checkUserOrShopExist?.email,
-      otp,
-      checkUserOrShopExist?.name
-    );
-    res.status(200).send({
+    await sendMail(checkUserExist?.email, otp, checkUserExist?.name);
+
+    const sendUserDetails = {
+      id: checkUserExist?._id,
+      name: checkUserExist?.name,
+      verified: checkUserExist?.verified,
+    };
+    res.status(201).send({
+      status: true,
       message: "OTP sent Successfully",
+      data: {
+        userDetails: sendUserDetails,
+      },
     });
   } catch (error) {
-    res.status(400).send({ message: "Something error is Happend" });
+    res.status(400).send({ status: false, message: "Something Went Wrong" });
   }
 };
 
-const userOrShopExistsWithIdOrEmailFunction = async ({
-  res,
-  password,
-  email,
-  model,
-  type,
-}) => {
+const loginUserFunction = async ({ res, password, email, type }) => {
   try {
-    const checkUserOrShopExist = await model.findOne({ [type]: email });
+    const checkUserExist = await UserModel.findOne({ [type]: email });
+    if (!checkUserExist) {
+      return res.status(400).send({
+        status: false,
+        message: "User Not Found ! Please Register Your Account",
+      });
+    }
 
     const checkPassword = await verifyOtpAndPassword(
-      checkUserOrShopExist?.password,
+      checkUserExist?.password,
       password
     );
     if (!checkPassword) {
       return res.status(400).send({ message: "Please Check Your Password" });
     }
-    if (checkUserOrShopExist?.verified) {
-      if (model === ShopModel) {
-        const details = {
-          name: checkUserOrShopExist?.name,
-          shop_id: checkUserOrShopExist?.shop_id,
-          reg_type: checkUserOrShopExist?.reg_type,
-        };
-        const token = await generateJwtToken(details);
-        const sendDetails = {
-          name: checkUserOrShopExist?.name,
-          shop_id: checkUserOrShopExist?.shop_id,
-          reg_type: checkUserOrShopExist?.reg_type,
-          verified: checkUserOrShopExist?.verified,
-          image: checkUserOrShopExist?.image,
-          shop_name: checkUserOrShopExist?.shop_name,
-          shop_address: checkUserOrShopExist?.shop_address,
-          jwtToken: token,
-        };
-        return res.status(200).send({ userOrShopDetails: sendDetails });
-      }
+    if (checkUserExist?.verified) {
       const details = {
-        name: checkUserOrShopExist?.name,
-        user_id: checkUserOrShopExist?.user_id,
-        reg_type: checkUserOrShopExist?.reg_type,
+        name: checkUserExist?.name,
+        user_id: checkUserExist?.user_id,
+        role: checkUserExist?.role,
       };
       const token = await generateJwtToken(details);
       const sendDetails = {
-        name: checkUserOrShopExist?.name,
-        user_id: checkUserOrShopExist?.user_id,
-        reg_type: checkUserOrShopExist?.reg_type,
-        verified: checkUserOrShopExist?.verified,
-        image: checkUserOrShopExist?.image,
+        name: checkUserExist?.name,
+        user_id: checkUserExist?.user_id,
+        role: checkUserExist?.role,
+        verified: checkUserExist?.verified,
+        image: checkUserExist?.image,
+        address: checkUserExist?.address,
         jwtToken: token,
       };
-      res.status(200).send({ userOrShopDetails: sendDetails });
-    } else {
-      const findUserOrShopExistsOtp = await VerificationEmailModel.findOne({
-        user_shop: checkUserOrShopExist?._id,
-        modelType: model === ShopModel ? "Shop" : "User",
+      res.status(200).send({
+        status: true,
+        message: "Login Successfully",
+        data: {
+          userDetails: sendDetails,
+        },
       });
-      if (!findUserOrShopExistsOtp) {
-        const otp = generateOtp();
-        const hashedOtp = await makeHashText(otp);
-        const verificationOtp = new VerificationEmailModel({
-          user_shop: checkUserOrShopExist?._id,
-          modelType: model === ShopModel ? "Shop" : "User",
-          otp: hashedOtp,
-        });
-        await verificationOtp.save();
-        await sendMail(
-          checkUserOrShopExist?.email,
-          otp,
-          checkUserOrShopExist?.name
-        );
-        const sendUserDetails = {
-          id: checkUserOrShopExist?._id,
-          name: checkUserOrShopExist?.name,
-          verified: checkUserOrShopExist?.verified,
-        };
-        res.status(200).send({
-          userOrShopDetails: sendUserDetails,
-          message: "OTP sent Successfully",
-        });
-      } else {
-        const sendUserDetails = {
-          id: checkUserOrShopExist?._id,
-          name: checkUserOrShopExist?.name,
-          verified: checkUserOrShopExist?.verified,
-        };
-        res.status(200).send({
-          userOrShopDetails: sendUserDetails,
-          message: "Please Enter The Previous OTP.",
-        });
-      }
+    } else {
+      await sendOtp({
+        res,
+        user_id: checkUserExist?._id,
+      });
     }
   } catch (error) {
-    res.status(400).send({ message: "Something error is Happend" });
+    res.status(400).send({ status: false, message: "Something Went Wrong" });
   }
 };
 
@@ -424,5 +436,9 @@ module.exports = {
   preCheckValidations,
   verifyOtp,
   sendOtp,
-  userOrShopExistsWithIdOrEmailFunction,
+  loginUserFunction,
+  REG_TYPES,
+  authorizeAdmin,
+  verificationMiddleWare,
+  ALLOWED_ROLES,
 };

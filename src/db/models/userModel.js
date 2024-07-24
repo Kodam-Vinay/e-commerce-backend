@@ -6,7 +6,7 @@ const userSchema = new Schema(
       type: String,
       required: true,
       minLength: 4,
-      default: "random",
+      unique: true,
     },
     email: {
       type: String,
@@ -37,10 +37,15 @@ const userSchema = new Schema(
       required: true,
       default: false,
     },
-    reg_type: {
+    address: {
       type: String,
       required: true,
-      enum: ["buyer", "guest", "admin"],
+      default: "Empty",
+    },
+    role: {
+      type: String,
+      required: true,
+      enum: ["buyer", "guest", "seller", "admin"],
     },
   },
   {
@@ -48,7 +53,4 @@ const userSchema = new Schema(
   }
 );
 const UserModel = model("User", userSchema);
-module.exports = {
-  UserModel,
-  userSchema,
-};
+module.exports = UserModel;

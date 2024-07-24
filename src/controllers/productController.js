@@ -1,6 +1,5 @@
-const { UserModel } = require("../../db/model/UserModel");
-const { ProductModel } = require("../../db/model/productModel");
-const { ShopModel } = require("../../db/model/shopModel");
+const ProductModel = require("../db/models/productModel");
+const UserModel = require("../db/models/userModel");
 
 const addProduct = async (req, res) => {
   try {
@@ -11,16 +10,16 @@ const addProduct = async (req, res) => {
       category,
       rating,
       specifications,
-      seller_id,
       is_premium_product,
       discount,
     } = req.body;
-    if ((!name, !price, !category, !rating, !specifications, !seller_id)) {
+    if ((!name, !price, !category, !rating, !specifications)) {
       return;
     }
 
     const { userOrShopDetails } = req.user;
-    const checkShopExist = await ShopModel.findOne({
+
+    const checkShopExist = await ShopAdminModel.findOne({
       shop_id: userOrShopDetails?.shop_id,
     });
 
@@ -28,7 +27,14 @@ const addProduct = async (req, res) => {
     if (!checkUserIsVerified) {
       return res
         .status(400)
-        .send({ message: "User is Not Verified or Not Valid" });
+        .send({ status: false, message: "User is Not Verified or Not Valid" });
+    }
+
+    const checkUserTypeIsSeller = checkShopExist?.reg_type === "seller";
+    if (!checkUserTypeIsSeller) {
+      return res
+        .status(400)
+        .send({ status: false, message: "Your Not Allowed To Add A Product" });
     }
 
     const newProduct = new ProductModel({
@@ -38,14 +44,16 @@ const addProduct = async (req, res) => {
       category,
       rating,
       specifications,
-      seller_id,
+      seller_id: userOrShopDetails?.shop_id,
       is_premium_product: is_premium_product ? is_premium_product : false,
       discount: discount ? discount : 0,
     });
     await newProduct.save();
-    res.status(201).send({ message: "New Product Added Successfully" });
+    res
+      .status(201)
+      .send({ status: true, message: "New Product Added Successfully" });
   } catch (error) {
-    res.status(400).send({ message: "Something error is Happend" });
+    res.status(400).send({ status: false, message: "Something Went Wrong" });
   }
 };
 
@@ -138,13 +146,21 @@ const getBuyerPorducts = async ({
   const checkUserIsPremiumUser = checkUserExist?.is_premium_user;
   if (checkUserIsPremiumUser) {
     return res.status(200).send({
-      allProducts: products,
-      premiumProducts,
+      status: true,
+      message: "Products retrieved successfully",
+      data: {
+        allProducts: products,
+        premiumProducts,
+      },
     });
   } else {
     return res.status(200).send({
-      allProducts: products,
-      premiumProducts: [],
+      status: true,
+      message: "Products retrieved successfully",
+      data: {
+        allProducts: products,
+        premiumProducts: [],
+      },
     });
   }
 };
@@ -153,7 +169,13 @@ const getShopPorducts = async ({ res, checkShopExist }) => {
   const products = await ProductModel.find({
     seller_id: checkShopExist?.shop_id,
   });
-  return res.status(200).send({ allProducts: products });
+  return res.status(200).send({
+    status: true,
+    message: "Products retrieved successfully",
+    data: {
+      allProducts: products,
+    },
+  });
 };
 
 const getAllProducts = async (req, res) => {
@@ -169,9 +191,10 @@ const getAllProducts = async (req, res) => {
     } = req.query;
 
     if (userOrShopDetails?.reg_type === "admin") {
-      return res
-        .status(400)
-        .send({ message: "Your Not Allowed To Access Products" });
+      return res.status(400).send({
+        status: false,
+        message: "Your Not Allowed To Access Products",
+      });
     }
 
     const checkUserType =
@@ -183,9 +206,10 @@ const getAllProducts = async (req, res) => {
       });
       const checkUserIsVerified = checkUserExist?.verified;
       if (!checkUserIsVerified) {
-        return res
-          .status(400)
-          .send({ message: "User is Not Verified or Not Valid" });
+        return res.status(400).send({
+          status: false,
+          message: "User is Not Verified or Not Valid",
+        });
       }
       getBuyerPorducts({
         search_q,
@@ -198,22 +222,23 @@ const getAllProducts = async (req, res) => {
         checkUserExist,
       });
     } else {
-      const checkShopExist = await ShopModel.findOne({
+      const checkShopExist = await ShopAdminModel.findOne({
         shop_id: userOrShopDetails?.shop_id,
       });
 
       const checkUserIsVerified = checkShopExist?.verified;
       if (!checkUserIsVerified) {
-        return res
-          .status(400)
-          .send({ message: "Shop is Not Verified or Not Valid" });
+        return res.status(400).send({
+          status: false,
+          message: "Shop is Not Verified or Not Valid",
+        });
       }
       getShopPorducts({ res, checkShopExist });
     }
 
     // sort by: popularity, new, price:low to high(price_asc)/high to low(price_desc), discount, recommended
   } catch (error) {
-    res.status(400).send({ message: "Something error is Happend" });
+    res.status(400).send({ status: false, message: "Something Went Wrong" });
   }
 };
 
@@ -221,18 +246,20 @@ const updateProduct = async (req, res) => {
   try {
     const { userOrShopDetails } = req.user;
     const requests = req.body;
-
     if (!requests?.product_id) {
-      return res.status(400).send({ message: "Proudct Id Not Found" });
+      return res
+        .status(400)
+        .send({ status: false, message: "Proudct Id Not Found" });
     }
 
     if (requests?.seller_id) {
-      return res
-        .status(400)
-        .send({ message: "Your Not Allowed to Update Seller Id" });
+      return res.status(400).send({
+        status: false,
+        message: "Your Not Allowed to Update Seller Id",
+      });
     }
 
-    const checkUserExist = await ShopModel.findOne({
+    const checkUserExist = await ShopAdminModel.findOne({
       shop_id: userOrShopDetails?.shop_id,
     });
 
@@ -240,18 +267,21 @@ const updateProduct = async (req, res) => {
     if (!checkUserIsVerified) {
       return res
         .status(400)
-        .send({ message: "User is Not Verified or Not Valid" });
+        .send({ status: false, message: "User is Not Verified or Not Valid" });
     }
 
-    const checkUserTypeIsSeller = checkUserExist?.reg_type !== "seller";
-    if (checkUserTypeIsSeller) {
-      return res
-        .status(400)
-        .send({ message: "Your Not Allowed To Update A Product" });
+    const checkUserTypeIsSeller = checkUserExist?.reg_type === "seller";
+    if (!checkUserTypeIsSeller) {
+      return res.status(400).send({
+        status: false,
+        message: "Your Not Allowed To Update A Product",
+      });
     }
 
     if (Object.keys(requests).length === 0) {
-      return res.status(400).send({ message: "Requests Should not be empty" });
+      return res
+        .status(400)
+        .send({ status: false, message: "Requests Should not be empty" });
     }
 
     const checkProductExist = await ProductModel.findOne({
@@ -260,16 +290,18 @@ const updateProduct = async (req, res) => {
 
     if (!checkProductExist) {
       return res.status(400).send({
+        status: false,
         message: "Your trying to update a product which does not exist",
       });
     }
 
     const checkTheUserIdWithProduct =
-      checkProductExist?.seller_id === userOrShopDetails?.user_id;
+      checkProductExist?.seller_id === userOrShopDetails?.shop_id;
     if (!checkTheUserIdWithProduct) {
-      return res
-        .status(400)
-        .send({ message: "Your Not Allowed To Update A Product" });
+      return res.status(400).send({
+        status: false,
+        message: "Your Not Allowed To Update A Product",
+      });
     }
 
     let result = false;
@@ -285,6 +317,7 @@ const updateProduct = async (req, res) => {
 
     if (result) {
       return res.status(400).send({
+        status: false,
         message: "Your trying to update the property which not exist",
       });
     }
@@ -300,10 +333,12 @@ const updateProduct = async (req, res) => {
         { $set: updateProductDetails },
         { new: true }
       );
-      res.status(200).send({ message: "Product Updated Successfully" });
+      res
+        .status(200)
+        .send({ status: true, message: "Product Updated Successfully" });
     }
   } catch (error) {
-    res.status(400).send({ message: "Something error is Happend" });
+    res.status(400).send({ status: false, message: "Something Went Wrong" });
   }
 };
 
@@ -313,10 +348,12 @@ const deleteProduct = async (req, res) => {
     const { product_id } = req.body;
 
     if (!product_id) {
-      return res.status(400).send({ message: "Proudct Id Not Found" });
+      return res
+        .status(400)
+        .send({ status: false, message: "Proudct Id Not Found" });
     }
 
-    const checkUserExist = await ShopModel.findOne({
+    const checkUserExist = await ShopAdminModel.findOne({
       shop_id: userOrShopDetails?.shop_id,
     });
 
@@ -324,14 +361,15 @@ const deleteProduct = async (req, res) => {
     if (!checkUserIsVerified) {
       return res
         .status(400)
-        .send({ message: "User is Not Verified or Not Valid" });
+        .send({ status: false, message: "User is Not Verified or Not Valid" });
     }
 
     const checkUserTypeIsSeller = checkUserExist?.reg_type !== "seller";
     if (checkUserTypeIsSeller) {
-      return res
-        .status(400)
-        .send({ message: "Your Not Allowed To Delete A Product" });
+      return res.status(400).send({
+        status: false,
+        message: "Your Not Allowed To Delete A Product",
+      });
     }
 
     const checkProductExist = await ProductModel.findOne({
@@ -340,6 +378,7 @@ const deleteProduct = async (req, res) => {
 
     if (!checkProductExist) {
       return res.status(400).send({
+        status: false,
         message: "Your trying to delete a product which does not exist",
       });
     }
@@ -347,15 +386,18 @@ const deleteProduct = async (req, res) => {
     const checkTheUserIdWithProduct =
       checkProductExist?.seller_id === userOrShopDetails?.user_id;
     if (!checkTheUserIdWithProduct) {
-      return res
-        .status(400)
-        .send({ message: "Your Not Allowed To Delete A Product" });
+      return res.status(400).send({
+        status: false,
+        message: "Your Not Allowed To Delete A Product",
+      });
     }
 
     await ProductModel.findByIdAndDelete({ _id: product_id });
-    res.status(200).send({ message: "Product Deleted Successfully" });
+    res
+      .status(200)
+      .send({ status: true, message: "Product Deleted Successfully" });
   } catch (error) {
-    res.status(400).send({ message: "Something error is Happend" });
+    res.status(400).send({ status: false, message: "Something Went Wrong" });
   }
 };
 
@@ -365,7 +407,9 @@ const getProduct = async (req, res) => {
     const { userOrShopDetails } = req.user;
     const product_id = req.params.product_id;
     if (!product_id) {
-      return res.status(400).send({ message: "Proudct Id Not Found" });
+      return res
+        .status(400)
+        .send({ status: false, message: "Proudct Id Not Found" });
     }
     const checkUserExist = await UserModel.findOne({
       user_id: userOrShopDetails?.user_id,
@@ -375,7 +419,7 @@ const getProduct = async (req, res) => {
     if (!checkUserIsVerified) {
       return res
         .status(400)
-        .send({ message: "User is Not Verified or Not Valid" });
+        .send({ status: false, message: "User is Not Verified or Not Valid" });
     }
 
     const checkProductExist = await ProductModel.findOne({
@@ -384,6 +428,7 @@ const getProduct = async (req, res) => {
 
     if (!checkProductExist) {
       return res.status(400).send({
+        status: false,
         message: "Your trying to access a product which does not exist",
       });
     }
@@ -393,16 +438,34 @@ const getProduct = async (req, res) => {
       const checkUserIsPremiumUser = checkUserExist?.is_premium_user;
       if (!checkUserIsPremiumUser) {
         return res.status(400).send({
+          status: false,
           message: "Your Not allowed to access this product",
         });
       } else {
-        res.status(200).send({ productDetails: checkProductExist });
+        res.status(200).send({
+          status: true,
+          message: "Product Retrieved Successfully",
+          productDetails: checkProductExist,
+        });
       }
     } else {
-      res.status(200).send({ productDetails: checkProductExist });
+      res.status(200).send({ status: true, productDetails: checkProductExist });
     }
   } catch (error) {
-    res.status(400).send({ message: "Something error is Happend" });
+    res.status(400).send({ status: false, message: "Something Went Wrong" });
+  }
+};
+
+const addReview = async (req, res) => {
+  try {
+    const { userOrShopDetails } = req.user;
+    const { comment, rating } = req.body;
+    const findUser = await UserModel.findOne({ user_id: userOrShopDetails });
+    if (!findUser) {
+      return res.status(400).send({ status: false, message: "User Not Exist" });
+    }
+  } catch (error) {
+    res.status(400).send({ status: false, message: "Something Went Wrong" });
   }
 };
 
@@ -412,4 +475,5 @@ module.exports = {
   deleteProduct,
   updateProduct,
   getProduct,
+  addReview,
 };

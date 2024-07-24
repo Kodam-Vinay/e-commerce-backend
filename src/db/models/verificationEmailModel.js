@@ -2,15 +2,10 @@ const { Schema, model } = require("mongoose");
 
 const verificationSchema = new Schema(
   {
-    user_shop: {
+    user_id: {
       type: Schema.ObjectId,
-      ref: "modelType",
+      ref: "User",
       required: true,
-    },
-    modelType: {
-      type: String,
-      required: true,
-      enum: ["User", "Shop"],
     },
     otp: {
       type: String,
@@ -18,8 +13,8 @@ const verificationSchema = new Schema(
     },
     createdAt: {
       type: Date,
-      expires: 300, //otp will automatically expires in 5 minutes
-      default: Date.now(),
+      required: true,
+      default: Date.now,
     },
   },
   {
@@ -27,7 +22,7 @@ const verificationSchema = new Schema(
   }
 );
 
+verificationSchema.index({ createdAt: 1 }, { expireAfterSeconds: 300 });
+
 const VerificationEmailModel = model("Verification", verificationSchema);
-module.exports = {
-  VerificationEmailModel,
-};
+module.exports = VerificationEmailModel;

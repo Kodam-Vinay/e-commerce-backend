@@ -1,5 +1,5 @@
 const mongoose = require("mongoose");
-const { MONGO_URL } = require("../src/utils/constants");
+const { MONGO_URL } = require("../utils/constants");
 
 mongoose
   .connect(MONGO_URL)
