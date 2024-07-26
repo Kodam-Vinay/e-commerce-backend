@@ -5,53 +5,32 @@ const addProduct = async (req, res) => {
   try {
     const {
       name,
-      price,
-      image,
+      product_id,
       category,
-      rating,
-      specifications,
-      is_premium_product,
-      discount,
+      brand,
+      price,
+      currency = "INR",
+      description,
+      features: [],
+      images: [],
     } = req.body;
     if ((!name, !price, !category, !rating, !specifications)) {
       return;
     }
 
-    const { userOrShopDetails } = req.user;
-
-    const checkShopExist = await ShopAdminModel.findOne({
-      shop_id: userOrShopDetails?.shop_id,
-    });
-
-    const checkUserIsVerified = checkShopExist?.verified;
-    if (!checkUserIsVerified) {
-      return res
-        .status(400)
-        .send({ status: false, message: "User is Not Verified or Not Valid" });
-    }
-
-    const checkUserTypeIsSeller = checkShopExist?.reg_type === "seller";
-    if (!checkUserTypeIsSeller) {
-      return res
-        .status(400)
-        .send({ status: false, message: "Your Not Allowed To Add A Product" });
-    }
+    const { userDetails } = req.user;
 
     const newProduct = new ProductModel({
       name,
-      price,
-      image: image ? image : "DUMMY_PRODUCT_LOGO.png",
+      product_id,
       category,
-      rating,
-      specifications,
-      seller_id: userOrShopDetails?.shop_id,
-      is_premium_product: is_premium_product ? is_premium_product : false,
-      discount: discount ? discount : 0,
+      brand,
+      price,
+      currency,
+      description,
+      features,
+      images,
     });
-    await newProduct.save();
-    res
-      .status(201)
-      .send({ status: true, message: "New Product Added Successfully" });
   } catch (error) {
     res.status(400).send({ status: false, message: "Something Went Wrong" });
   }

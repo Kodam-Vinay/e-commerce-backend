@@ -10,7 +10,10 @@ const {
   sendOtp,
   REG_TYPES,
   loginUserFunction,
+  generateJwtToken,
+  verifyOtpAndPassword,
 } = require("../utils/constants");
+const ProductModel = require("../db/models/productModel");
 
 const registerShopOrAdmin = async (req, res) => {
   try {
@@ -106,6 +109,7 @@ const loginShopAdmin = async (req, res) => {
         password,
         email,
         type: "user_id",
+        reg_type: REG_TYPES[0],
       });
     } else {
       await loginUserFunction({
@@ -113,8 +117,183 @@ const loginShopAdmin = async (req, res) => {
         password,
         email,
         type: "email",
+        reg_type: REG_TYPES[0],
       });
     }
+  } catch (error) {
+    res.status(400).send({ status: false, message: "Something Went Wrong" });
+  }
+};
+
+const updateShopAdmin = async (req, res) => {
+  try {
+    const { userDetails } = req.user;
+    const requests = req.body;
+    if (Object.keys(requests).length === 0) {
+      return res
+        .status(400)
+        .send({ message: "Update Requests Should not be empty" });
+    }
+
+    const checkUserExist = await UserModel.findOne({
+      user_id: userDetails?.user_id,
+    });
+
+    if (!checkUserExist) {
+      return res.status(400).send({ message: "User Not Exist" });
+    }
+
+    const checkUserIsVerified = checkUserExist?.verified;
+    if (!checkUserIsVerified) {
+      return res
+        .status(400)
+        .send({ status: false, message: "User is Not Verified or Not Valid" });
+    }
+
+    let result = false;
+
+    Object.keys(requests).forEach((each) => {
+      if (
+        each === "old_password" ||
+        each === "new_password" ||
+        each === "is_premium_user"
+      ) {
+        return;
+      }
+      if (!checkUserExist[each]) {
+        result = true;
+      }
+    });
+
+    if (result) {
+      return res.status(400).send({
+        message: "Your trying to update the property which not exist",
+      });
+    }
+
+    if (requests?.user_id && checkUserExist?.user_id !== requests?.user_id) {
+      //if req has user id then check logged in user //updating user_id
+      const findUserIdAlreadyExist = await UserModel.findOne({
+        user_id: requests?.user_id,
+      });
+      if (findUserIdAlreadyExist) {
+        return res.status(400).send({
+          message: "Enterd User Id Already Exist ! Please try an new User Id",
+        });
+      }
+    }
+
+    if (requests?.role) {
+      if (requests?.role !== checkUserExist?.role) {
+        return res
+          .status(400)
+          .send({ message: "You are not allowed to change the type of user" });
+      }
+    }
+
+    if (requests?.verified === true || requests?.verified === false) {
+      if (requests?.verified !== checkUserExist?.verified) {
+        return res
+          .status(400)
+          .send({ message: "You can verify your account by email validation" });
+      }
+    }
+
+    if (requests?.old_password && requests?.new_password) {
+      //check old password not equal to new pass
+      if (requests?.old_password === requests?.new_password) {
+        return res.status(400).send({
+          message: "Current Password Should not be same as Old Password",
+        });
+      }
+
+      const checkOldPassword = await verifyOtpAndPassword(
+        checkUserExist?.password,
+        requests?.old_password
+      );
+
+      if (!checkOldPassword) {
+        return res
+          .status(400)
+          .send({ message: "Please Check Your Old Password" });
+      }
+
+      if (!validator.isStrongPassword(requests?.new_password)) {
+        return res.status(400).send({
+          message:
+            "Password Not Meet the criteria, it Must includes(password length 8 or more charaters, 1 uppercase letter, 1 special symbol)",
+        });
+      }
+      const hashedPassword = await makeHashText(requests?.new_password);
+      delete requests?.old_password, requests?.new_password;
+
+      const req = {
+        ...requests,
+        password: hashedPassword,
+      };
+      const updateUser = { ...checkUserExist._doc, ...req }; //getting response in {checkUserExist: {_doc: {userdetails}}}
+
+      const checkAnyChangesMade =
+        JSON.stringify(updateUser) !== JSON.stringify(checkUserExist);
+
+      if (checkAnyChangesMade) {
+        await UserModel.updateOne(
+          { user_id: checkUserExist?.user_id },
+          { $set: updateUser },
+          { new: true }
+        );
+        if (checkUserExist?.role === "seller") {
+          const filter = { seller_id: checkUserExist?.user_id };
+          const updateDoc = { seller_id: requests?.user_id };
+          await ProductModel.updateMany(filter, updateDoc);
+        }
+      }
+    } else {
+      const updateUser = { ...checkUserExist._doc, ...requests }; //getting response in {checkUserExist: {_doc: {userdetails}}}
+
+      const checkAnyChangesMade =
+        JSON.stringify(updateUser) !== JSON.stringify(checkUserExist);
+
+      if (checkAnyChangesMade) {
+        await UserModel.updateOne(
+          { user_id: checkUserExist?.user_id },
+          { $set: updateUser },
+          { new: true }
+        );
+        if (checkUserExist?.role === "seller") {
+          const filter = { seller_id: checkUserExist?.user_id };
+          const updateDoc = { seller_id: requests?.user_id };
+          await ProductModel.updateMany(filter, updateDoc);
+        }
+      }
+    }
+
+    const userDetailsAfterUpdate = await UserModel.findOne({
+      user_id: requests?.user_id,
+    });
+
+    const details = {
+      name: userDetailsAfterUpdate?.name,
+      user_id: userDetailsAfterUpdate?.user_id,
+      role: userDetailsAfterUpdate?.role,
+    };
+    const token = await generateJwtToken(details);
+    const sendDetails = {
+      name: userDetailsAfterUpdate?.name,
+      user_id: userDetailsAfterUpdate?.user_id,
+      role: userDetailsAfterUpdate?.role,
+      verified: userDetailsAfterUpdate?.verified,
+      image: userDetailsAfterUpdate?.image,
+      address: userDetailsAfterUpdate?.address,
+      jwtToken: token,
+    };
+    res.status(200).send({
+      status: true,
+      message: "User Details updated successfully",
+      data: {
+        userDetails: sendDetails,
+      },
+    });
   } catch (error) {
     res.status(400).send({ status: false, message: "Something Went Wrong" });
   }
@@ -125,4 +304,5 @@ module.exports = {
   verifyShopOrAdminOtp,
   sendShopOrAdminOtp,
   loginShopAdmin,
+  updateShopAdmin,
 };

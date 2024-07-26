@@ -112,6 +112,7 @@ const loginUser = async (req, res) => {
           password,
           email,
           type: "user_id",
+          reg_type: REG_TYPES[1],
         });
       } else {
         await loginUserFunction({
@@ -119,6 +120,7 @@ const loginUser = async (req, res) => {
           password,
           email,
           type: "email",
+          reg_type: REG_TYPES[1],
         });
       }
     } catch (error) {

@@ -100,6 +100,9 @@ const authorizeUser = async (req, res, next) => {
 const verificationMiddleWare = async (req, res, next) => {
   const { userDetails } = req.user;
   const findUser = await UserModel.findOne(userDetails?.id);
+  if (!findUser) {
+    return res.status(400).send({ status: false, message: "User Not Found" });
+  }
   const checkUserIsVerified = findUser?.verified;
   if (!checkUserIsVerified) {
     return res
@@ -112,6 +115,17 @@ const verificationMiddleWare = async (req, res, next) => {
 const authorizeAdmin = async (req, res, next) => {
   const { userDetails } = req.user;
   const checkUserTypeIsAdmin = userDetails?.role === "admin";
+  if (!checkUserTypeIsAdmin) {
+    return res
+      .status(400)
+      .send({ status: false, message: "This Access Limited To Admins Only" });
+  }
+  next();
+};
+
+const authorizeSeller = async (req, res, next) => {
+  const { userDetails } = req.user;
+  const checkUserTypeIsAdmin = userDetails?.role === "seller";
   if (!checkUserTypeIsAdmin) {
     return res
       .status(400)
@@ -373,13 +387,30 @@ const sendOtp = async ({ res, user_id }) => {
   }
 };
 
-const loginUserFunction = async ({ res, password, email, type }) => {
+const loginUserFunction = async ({ res, password, email, type, reg_type }) => {
   try {
     const checkUserExist = await UserModel.findOne({ [type]: email });
     if (!checkUserExist) {
       return res.status(400).send({
         status: false,
         message: "User Not Found ! Please Register Your Account",
+      });
+    }
+
+    if (
+      reg_type === REG_TYPES[0] &&
+      (checkUserExist?.role === "buyer" || checkUserExist?.role === "guest")
+    ) {
+      return res.status(400).send({
+        status: false,
+        message: "This Login is Limited to seller (Or) admin only.",
+      });
+    }
+
+    if (reg_type === REG_TYPES[1] && (role === "admin" || role === "seller")) {
+      return res.status(400).send({
+        status: false,
+        message: "This Login is Limited to User (Or) Guest only.",
       });
     }
 
@@ -441,4 +472,5 @@ module.exports = {
   authorizeAdmin,
   verificationMiddleWare,
   ALLOWED_ROLES,
+  authorizeSeller,
 };

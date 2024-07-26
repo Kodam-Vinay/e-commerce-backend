@@ -1,6 +1,10 @@
 const express = require("express");
 
-const { authorizeUser } = require("../utils/constants");
+const {
+  authorizeUser,
+  verificationMiddleWare,
+  authorizeSeller,
+} = require("../utils/constants");
 const {
   getAllProducts,
   addProduct,
@@ -10,12 +14,28 @@ const {
 } = require("../controllers/productController");
 const router = express.Router();
 
-router.get("/all", authorizeUser, getAllProducts);
-router.post("/add", authorizeUser, addProduct);
-router.put("/update", authorizeUser, updateProduct);
-router.delete("/delete", authorizeUser, deleteProduct);
+router.get("/all", authorizeUser, verificationMiddleWare, getAllProducts);
+router.post(
+  "/add",
+  authorizeUser,
+  verificationMiddleWare,
+  authorizeSeller,
+  addProduct
+);
+router.put(
+  "/update",
+  authorizeUser,
+  verificationMiddleWare,
+  authorizeSeller,
+  updateProduct
+);
+router.delete(
+  "/delete",
+  authorizeUser,
+  verificationMiddleWare,
+  authorizeSeller,
+  deleteProduct
+);
 router.get("/:product_id", authorizeUser, getProduct);
 
-module.exports = {
-  productRouter: router,
-};
+module.exports = router;
