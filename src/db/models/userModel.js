@@ -1,5 +1,14 @@
 const { Schema, model } = require("mongoose");
 
+const contactSchema = new Schema({
+  email: {
+    type: String,
+  },
+  mobile_number: {
+    type: String,
+  },
+});
+
 const userSchema = new Schema(
   {
     user_id: {
@@ -39,14 +48,13 @@ const userSchema = new Schema(
     },
     address: {
       type: String,
-      required: true,
-      default: "Empty",
     },
     role: {
       type: String,
       required: true,
       enum: ["buyer", "guest", "seller", "admin"],
     },
+    contact: contactSchema,
   },
   {
     timestamps: true,

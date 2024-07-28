@@ -17,8 +17,17 @@ const ProductModel = require("../db/models/productModel");
 
 const registerShopOrAdmin = async (req, res) => {
   try {
-    const { email, password, confirm_password, name, role, user_id, image } =
-      req.body;
+    const {
+      email,
+      password,
+      confirm_password,
+      name,
+      role,
+      user_id,
+      image,
+      contact_email,
+      contact_mobile_number,
+    } = req.body;
     const response = await preCheckValidations({
       email,
       password,
@@ -44,6 +53,10 @@ const registerShopOrAdmin = async (req, res) => {
         role,
         user_id,
         image: image ? image : "DUMMY_PROFILE_LOGO.png",
+        contact: {
+          email: contact_email ? contact_email : email,
+          mobile_number: contact_mobile_number ? contact_mobile_number : "",
+        },
       });
 
       const verificationOtp = new VerificationEmailModel({
@@ -69,6 +82,7 @@ const registerShopOrAdmin = async (req, res) => {
       });
     }
   } catch (error) {
+    console.log(error.message);
     res.status(400).send({ status: false, message: "Something Went Wrong" });
   }
 };
@@ -98,7 +112,7 @@ const sendShopOrAdminOtp = async (req, res) => {
 const loginShopAdmin = async (req, res) => {
   try {
     const { email, password } = req.body;
-    if (!email?.toString().trim() || !password?.toString().trim()) {
+    if (!email?.toString()?.trim() || !password?.toString()?.trim()) {
       return res
         .status(400)
         .send({ status: false, message: "Fieds Should Not Be Empty" });
@@ -253,7 +267,6 @@ const updateShopAdmin = async (req, res) => {
 
       const checkAnyChangesMade =
         JSON.stringify(updateUser) !== JSON.stringify(checkUserExist);
-
       if (checkAnyChangesMade) {
         await UserModel.updateOne(
           { user_id: checkUserExist?.user_id },
@@ -271,7 +284,6 @@ const updateShopAdmin = async (req, res) => {
     const userDetailsAfterUpdate = await UserModel.findOne({
       user_id: requests?.user_id,
     });
-
     const details = {
       name: userDetailsAfterUpdate?.name,
       user_id: userDetailsAfterUpdate?.user_id,
@@ -285,6 +297,10 @@ const updateShopAdmin = async (req, res) => {
       verified: userDetailsAfterUpdate?.verified,
       image: userDetailsAfterUpdate?.image,
       address: userDetailsAfterUpdate?.address,
+      contact: {
+        email: userDetailsAfterUpdate?.contact?.email,
+        mobile_number: userDetailsAfterUpdate?.contact?.mobile_number,
+      },
       jwtToken: token,
     };
     res.status(200).send({
@@ -299,10 +315,162 @@ const updateShopAdmin = async (req, res) => {
   }
 };
 
+// forget password controllers
+const forgetPasswordShopAdmin = async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!validator.isEmail(email)) {
+      return res
+        .status(400)
+        .send({ status: false, message: "Please Enter A Valid Email" });
+    }
+    const checkUserExist = await UserModel.findOne({ email });
+
+    if (!checkUserExist) {
+      return res.status(400).send({ status: false, message: "User Not Found" });
+    }
+    const findUserExistWithOtp = await VerificationEmailModel.findOne({
+      user_id: checkUserExist?._id,
+    });
+
+    if (findUserExistWithOtp) {
+      return res.status(400).send({
+        status: false,
+        message:
+          "Please wait 5 mins to make another otp Request (Or) Check Ur Recent Otp on Mail",
+      });
+    }
+    const otp = generateOtp();
+    const hashedOtp = await makeHashText(otp);
+    const verificationOtp = new VerificationEmailModel({
+      user_id: checkUserExist?._id,
+      otp: hashedOtp,
+    });
+    await verificationOtp.save();
+    await sendMail(checkUserExist?.email, otp, checkUserExist?.name);
+
+    const sendUserDetails = {
+      id: checkUserExist?._id,
+      name: checkUserExist?.name,
+      verified: checkUserExist?.verified,
+    };
+    res.status(201).send({
+      status: true,
+      message: "OTP sent Successfully",
+      data: {
+        userDetails: sendUserDetails,
+      },
+    });
+  } catch (error) {
+    res.status(400).send({ status: false, message: "Something Went Wrong" });
+  }
+};
+
+const verifyOtpForgetPasswordShopAdmin = async (req, res) => {
+  try {
+    const { user_id, otp } = req.body;
+
+    const checkUserExist = await UserModel.findOne({
+      _id: user_id,
+    });
+
+    if (!checkUserExist) {
+      return res.status(404).send({
+        status: false,
+        message: "User Not Exists",
+      });
+    }
+    const findUserExistWithOtp = await VerificationEmailModel.findOne({
+      user_id,
+    });
+
+    if (!findUserExistWithOtp) {
+      return res.status(404).send({
+        status: false,
+        message: "OTP Expired, Make Another OTP Request",
+      });
+    }
+
+    const result = await verifyOtpAndPassword(findUserExistWithOtp?.otp, otp);
+
+    if (!result) {
+      return res.status(400).send({
+        status: false,
+        message: "Otp is invalid",
+      });
+    }
+
+    await VerificationEmailModel.findByIdAndDelete(findUserExistWithOtp?._id);
+
+    const sendDetails = {
+      id: checkUserExist?._id,
+    };
+    res.status(200).send({
+      status: true,
+      message: "User Verified Successfully, update your password",
+      data: {
+        userDetails: sendDetails,
+      },
+    });
+  } catch (error) {
+    res.status(400).send({ status: false, message: "Something Went Wrong" });
+  }
+};
+
+const updatePasswordShopAdmin = async (req, res) => {
+  try {
+    const { password, confirm_password, user_id } = req.body;
+    if (password?.toString()?.trim() !== confirm_password?.toString()?.trim()) {
+      return res.status(400).send({
+        status: false,
+        message: "Both Passwords should Match",
+      });
+    }
+
+    if (!validator.isStrongPassword(password)) {
+      return res.status(400).send({
+        status: false,
+        message:
+          "Password Not Meet the criteria, it Must includes(password length 8 or more charaters, 1 uppercase letter, 1 special symbol)",
+      });
+    }
+
+    const findUserDetails = await UserModel.findOne({
+      _id: user_id,
+    });
+
+    const comparePassword = await verifyOtpAndPassword(
+      findUserDetails?.password,
+      password
+    );
+
+    if (comparePassword) {
+      return res.status(400).send({
+        status: false,
+        message: "current password should not same as old password",
+      });
+    }
+    const hashedPassword = await makeHashText(password);
+
+    await UserModel.updateOne(
+      { _id: user_id },
+      { $set: { password: hashedPassword } }
+    );
+    res
+      .status(200)
+      .send({ status: true, message: "Password Updated Successfully" });
+  } catch (error) {
+    res.status(400).send({ status: false, message: "Something Went Wrong" });
+  }
+};
+
 module.exports = {
   registerShopOrAdmin,
   verifyShopOrAdminOtp,
   sendShopOrAdminOtp,
   loginShopAdmin,
   updateShopAdmin,
+  forgetPasswordShopAdmin,
+  updatePasswordShopAdmin,
+  verifyOtpForgetPasswordShopAdmin,
 };

@@ -4,15 +4,17 @@ const UserModel = require("../db/models/userModel");
 const addProduct = async (req, res) => {
   try {
     const {
-      name,
       product_id,
+      name,
+      price,
       category,
       brand,
-      price,
-      currency = "INR",
       description,
-      features: [],
-      images: [],
+      features = [],
+      images = [],
+      reviews = [],
+      specifications = {},
+      stock = [],
     } = req.body;
     if ((!name, !price, !category, !rating, !specifications)) {
       return;
@@ -20,17 +22,37 @@ const addProduct = async (req, res) => {
 
     const { userDetails } = req.user;
 
+    const checkSellerDetails = UserModel.findOne({
+      user_id: userDetails?.user_id,
+    });
+
+    const sellerDetails = {
+      seller_id: checkSellerDetails?.user_id,
+      name: checkSellerDetails?.name,
+      contact: {
+        email: checkSellerDetails?.contact?.email,
+        mobile_number: checkSellerDetails?.contact?.mobile_number,
+      },
+    };
+
     const newProduct = new ProductModel({
       name,
       product_id,
       category,
       brand,
       price,
-      currency,
       description,
       features,
       images,
+      reviews,
+      seller: sellerDetails,
+      specifications,
+      stock,
     });
+    await newProduct.save();
+    res
+      .status(201)
+      .send({ status: false, message: "Product Created Suceessfully" });
   } catch (error) {
     res.status(400).send({ status: false, message: "Something Went Wrong" });
   }

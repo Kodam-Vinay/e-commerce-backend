@@ -48,7 +48,7 @@ const nodemailerTransport = createTransport({
 const verifyOtpAndPassword = async (passwordOrOtp, enteredPassOrOtp) => {
   let result = false;
   try {
-    result = await bcrypt.compare(enteredPassOrOtp.trim(), passwordOrOtp);
+    result = await bcrypt.compare(enteredPassOrOtp?.trim(), passwordOrOtp);
   } catch (error) {
     console.log(error);
   }
@@ -308,6 +308,10 @@ const verifyOtp = async ({ res, user_id, otp }) => {
       verified: userDetails?.verified,
       image: userDetails?.image,
       address: userDetails?.address,
+      contact: {
+        email: userDetails?.contact?.email,
+        mobile_number: userDetails?.contact?.mobile_number,
+      },
       jwtToken: token,
     };
     res.status(200).send({
@@ -383,6 +387,7 @@ const sendOtp = async ({ res, user_id }) => {
       },
     });
   } catch (error) {
+    console.log(error.message);
     res.status(400).send({ status: false, message: "Something Went Wrong" });
   }
 };
@@ -435,6 +440,10 @@ const loginUserFunction = async ({ res, password, email, type, reg_type }) => {
         verified: checkUserExist?.verified,
         image: checkUserExist?.image,
         address: checkUserExist?.address,
+        contact: {
+          email: checkUserExist?.contact?.email,
+          mobile_number: checkUserExist?.contact?.mobile_number,
+        },
         jwtToken: token,
       };
       res.status(200).send({

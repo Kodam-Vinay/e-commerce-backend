@@ -25,26 +25,6 @@ const imageSchema = new Schema({
   },
 });
 
-const reviewSchema = new Schema({
-  user_id: {
-    type: String,
-    required: true,
-  },
-  rating: {
-    type: Number,
-    required: true,
-    min: 1,
-    max: 5,
-  },
-  comment: {
-    type: String,
-  },
-  created_at: {
-    type: Date,
-    default: Date.now,
-  },
-});
-
 const stockSchema = new Schema({
   available: {
     type: Number,
@@ -64,12 +44,6 @@ const sellerSchema = new Schema({
   name: {
     type: String,
     required: true,
-  },
-  rating: {
-    type: Number,
-    required: true,
-    min: 0,
-    max: 5,
   },
   contact: {
     type: String,
@@ -100,11 +74,6 @@ const productSchema = new Schema(
       type: Number,
       required: true,
     },
-    currency: {
-      type: String,
-      required: true,
-      enum: ["USD", "INR"],
-    },
     description: {
       type: String,
     },
@@ -113,7 +82,10 @@ const productSchema = new Schema(
     },
     specifications: specificationSchema,
     images: [imageSchema],
-    reviews: [{ type: Schema.Types.ObjectId, ref: "Review" }],
+    reviews: {
+      type: Array,
+      ref: "Review",
+    },
     stock: stockSchema,
     seller: sellerSchema,
   },

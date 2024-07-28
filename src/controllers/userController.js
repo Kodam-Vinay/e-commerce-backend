@@ -333,6 +333,10 @@ const updateUser = async (req, res) => {
       role: userDetailsAfterUpdate?.role,
       verified: userDetailsAfterUpdate?.verified,
       image: userDetailsAfterUpdate?.image,
+      contact: {
+        email: userDetails?.contact?.email,
+        mobile_number: userDetails?.contact?.mobile_number,
+      },
       jwtToken: token,
     };
     res.status(200).send({
